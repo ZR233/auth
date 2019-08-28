@@ -12,6 +12,7 @@ import (
 
 type Core struct {
 	serviceTree map[string]*model.Service
+	roles       []*model.Role
 	storage     model.Storage
 }
 
@@ -25,6 +26,7 @@ func NewCore(storage model.Storage) *Core {
 func (c *Core) NewRole(name string) *model.Role {
 	return &model.Role{
 		Name:       name,
+		State:      1,
 		Storage:    c.storage,
 		CreateTime: time.Now(),
 		EditTime:   time.Now(),
@@ -42,11 +44,12 @@ func (c *Core) NewService(name string) *model.Service {
 	}
 }
 func (c *Core) Sync() error {
-	serviceTree, err := c.storage.Sync()
+	serviceTree, roles, err := c.storage.Sync()
 	if err != nil {
 		return err
 	}
 	c.serviceTree = serviceTree
+	c.roles = roles
 	return nil
 }
 func rolesHasName(roles []*model.Role, name string) bool {

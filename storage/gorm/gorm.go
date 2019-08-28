@@ -88,7 +88,7 @@ func (s *Storage) SaveRelation(service *model.Service, roles ...*model.Role) (er
 	return
 }
 
-func (s *Storage) Sync() (serviceTree map[string]*model.Service, err error) {
+func (s *Storage) Sync() (serviceTree map[string]*model.Service, roles []*model.Role, err error) {
 	var services []*Service
 	err = s.db.Find(&services).Error
 	if err != nil {
@@ -105,7 +105,7 @@ func (s *Storage) Sync() (serviceTree map[string]*model.Service, err error) {
 
 		for _, relation := range relations {
 			var role_ Role
-			err = s.db.Where(&Role{Name: relation.RoleName}).Find(&role_).Error
+			err = s.db.Where(&Role{Name: relation.RoleName, State: 1}).Find(&role_).Error
 			if err != nil {
 				return
 			}
@@ -135,6 +135,23 @@ func (s *Storage) Sync() (serviceTree map[string]*model.Service, err error) {
 	serviceTree = make(map[string]*model.Service)
 	for _, v := range serviceO {
 		serviceTreeInsert(serviceTree, v, serviceO)
+	}
+	var roles_ []*Role
+	err = s.db.Where(&Role{State: 1}).Find(&roles_).Error
+	if err != nil {
+		return
+	}
+	for _, role := range roles_ {
+
+		roles = append(roles, &model.Role{
+			Name:        role.Name,
+			State:       role.State,
+			Description: role.Description,
+			EditTime:    role.EditTime,
+			CreateTime:  role.CreateTime,
+			Services:    nil,
+			Storage:     s,
+		})
 	}
 
 	return

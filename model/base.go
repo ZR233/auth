@@ -52,7 +52,7 @@ func (s *Service) NewSubService(name string) *Service {
 }
 
 type Storage interface {
-	Sync() (serviceTree map[string]*Service, err error)
+	Sync() (serviceTree map[string]*Service, roles []*Role, err error)
 	SaveRole(role *Role) error
 	SaveService(service *Service) error
 	SaveRelation(service *Service, role ...*Role) error
