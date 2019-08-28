@@ -88,7 +88,7 @@ func (s *Storage) SaveRelation(service *model.Service, roles ...*model.Role) (er
 	return
 }
 
-func (s *Storage) Sync() (serviceTree map[string]*model.Service, roles []*model.Role, err error) {
+func (s *Storage) Sync() (serviceTree map[string]*model.Service, AllRoles []*model.Role, err error) {
 	var services []*Service
 	err = s.db.Find(&services).Error
 	if err != nil {
@@ -143,7 +143,7 @@ func (s *Storage) Sync() (serviceTree map[string]*model.Service, roles []*model.
 	}
 	for _, role := range roles_ {
 
-		roles = append(roles, &model.Role{
+		AllRoles = append(AllRoles, &model.Role{
 			Name:        role.Name,
 			State:       role.State,
 			Description: role.Description,
