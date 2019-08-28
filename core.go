@@ -6,6 +6,7 @@ package auth
 
 import (
 	"github.com/ZR233/auth/model"
+	"strings"
 	"time"
 )
 
@@ -47,4 +48,46 @@ func (c *Core) Sync() error {
 	}
 	c.serviceTree = serviceTree
 	return nil
+}
+func rolesHasName(roles []*model.Role, name string) bool {
+	r := false
+	for _, v := range roles {
+		if v.Name == name {
+			r = true
+			break
+		}
+	}
+	return r
+}
+
+func (c *Core) Check(ServiceUrl string, roleName string) (r bool) {
+	r = false
+	serviceNames := strings.Split(ServiceUrl, "/")
+	if len(serviceNames) == 0 {
+		return true
+	}
+	serviceName := serviceNames[0]
+	service, ok := c.serviceTree[serviceName]
+	if ok {
+		r = rolesHasName(service.Roles, roleName)
+		if !r {
+			return
+		}
+	} else {
+		return true
+	}
+	serviceNames = serviceNames[1:]
+	for _, servceName := range serviceNames {
+		service, ok = service.SubService[servceName]
+		if ok {
+			r = rolesHasName(service.Roles, roleName)
+			if !r {
+				return
+			}
+		} else {
+			return true
+		}
+	}
+
+	return
 }
