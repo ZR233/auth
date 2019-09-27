@@ -8,7 +8,7 @@ import "time"
 
 type Role struct {
 	Name        string `gorm:"primary_key;type:varchar(100)"`
-	State       int16  `gorm:"type:tinyint"`
+	State       int16
 	Description string `gorm:"type:varchar(500)"`
 	EditTime    time.Time
 	CreateTime  time.Time
