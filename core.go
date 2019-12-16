@@ -24,24 +24,29 @@ func NewCore(storage model.Storage) *Core {
 }
 
 func (c *Core) NewRole(name string) *model.Role {
-	return &model.Role{
+	r := &model.Role{
 		Name:       name,
 		State:      1,
-		Storage:    c.storage,
 		CreateTime: time.Now(),
 		EditTime:   time.Now(),
 	}
+	r.SetStorage(c.storage)
+
+	return r
+
 }
 func (c *Core) NewService(name string) *model.Service {
-	return &model.Service{
+	s := &model.Service{
 		Name:        name,
 		SupService:  "",
 		SubService:  nil,
 		Description: "",
 		CreateTime:  time.Now(),
 		EditTime:    time.Now(),
-		Storage:     c.storage,
 	}
+	s.SetStorage(c.storage)
+
+	return s
 }
 func (c *Core) Sync() error {
 	serviceTree, roles, err := c.storage.Sync()

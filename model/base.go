@@ -13,11 +13,15 @@ type Role struct {
 	EditTime    time.Time
 	CreateTime  time.Time
 	Services    []*Service
-	Storage     Storage
+	storage     Storage `json:"-"`
 }
 
 func (r *Role) Save() error {
-	return r.Storage.SaveRole(r)
+	return r.storage.SaveRole(r)
+}
+
+func (r *Role) SetStorage(storage Storage) {
+	r.storage = storage
 }
 
 type Service struct {
@@ -28,27 +32,33 @@ type Service struct {
 	CreateTime  time.Time
 	EditTime    time.Time
 	Roles       []*Role
-	Storage     Storage
+	storage     Storage `json:"-"`
 }
 
 func (s *Service) AddRoles(roles ...*Role) (err error) {
-	return s.Storage.SaveRelation(s, roles...)
+	return s.storage.SaveRelation(s, roles...)
 }
 
 func (s *Service) Save() error {
-	return s.Storage.SaveService(s)
+	return s.storage.SaveService(s)
 }
 func (s *Service) NewSubService(name string) *Service {
+	now := time.Now()
+
 	service := &Service{
 		Name:        name,
 		SupService:  s.Name,
 		SubService:  nil,
 		Description: "",
-		CreateTime:  time.Now(),
-		EditTime:    time.Now(),
-		Storage:     s.Storage,
+		CreateTime:  now,
+		EditTime:    now,
+		storage:     s.storage,
 	}
 	return service
+}
+
+func (s *Service) SetStorage(storage Storage) {
+	s.storage = storage
 }
 
 type Storage interface {

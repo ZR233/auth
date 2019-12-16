@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestGorm(t *testing.T) {
+func TestCore(t *testing.T) {
 
 	st := gorm.NewStorage(gorm.DbForTest())
 

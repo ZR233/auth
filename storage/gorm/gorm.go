@@ -35,8 +35,8 @@ func newRole(role *model.Role) (r *Role) {
 		Name:        role.Name,
 		State:       role.State,
 		Description: role.Description,
-		EditTime:    role.EditTime,
-		CreateTime:  role.CreateTime,
+		EditTime:    &role.EditTime,
+		CreateTime:  &role.CreateTime,
 	}
 
 	return
@@ -46,8 +46,8 @@ func newService(service *model.Service) (s *Service) {
 		Name:         service.Name,
 		SuperiorName: service.SupService,
 		Description:  service.Description,
-		CreateTime:   service.CreateTime,
-		EditTime:     service.EditTime,
+		CreateTime:   &service.CreateTime,
+		EditTime:     &service.EditTime,
 	}
 
 	return
@@ -113,23 +113,26 @@ func (s *Storage) Sync() (serviceTree map[string]*model.Service, AllRoles []*mod
 				Name:        role_.Name,
 				State:       role_.State,
 				Description: role_.Description,
-				EditTime:    role_.EditTime,
-				CreateTime:  role_.CreateTime,
-				Storage:     s,
+				EditTime:    *role_.EditTime,
+				CreateTime:  *role_.CreateTime,
 			}
+			role.SetStorage(s)
+
 			roles = append(roles, role)
 		}
 
-		serviceO = append(serviceO, &model.Service{
+		service_ := &model.Service{
 			Name:        service.Name,
 			SupService:  service.SuperiorName,
 			SubService:  nil,
 			Description: service.Description,
-			CreateTime:  service.CreateTime,
-			EditTime:    service.EditTime,
+			CreateTime:  *service.CreateTime,
+			EditTime:    *service.EditTime,
 			Roles:       roles,
-			Storage:     s,
-		})
+		}
+		service_.SetStorage(s)
+		serviceO = append(serviceO, service_)
+
 	}
 
 	serviceTree = make(map[string]*model.Service)
@@ -142,16 +145,16 @@ func (s *Storage) Sync() (serviceTree map[string]*model.Service, AllRoles []*mod
 		return
 	}
 	for _, role := range roles_ {
-
-		AllRoles = append(AllRoles, &model.Role{
+		role_ := &model.Role{
 			Name:        role.Name,
 			State:       role.State,
 			Description: role.Description,
-			EditTime:    role.EditTime,
-			CreateTime:  role.CreateTime,
+			EditTime:    *role.EditTime,
+			CreateTime:  *role.CreateTime,
 			Services:    nil,
-			Storage:     s,
-		})
+		}
+		role_.SetStorage(s)
+		AllRoles = append(AllRoles, role_)
 	}
 
 	return
