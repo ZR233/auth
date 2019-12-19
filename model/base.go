@@ -4,66 +4,149 @@
 */
 package model
 
-import "time"
+import (
+	"fmt"
+	"github.com/ZR233/auth/errors"
+	"sync"
+	"time"
+)
 
-type Role struct {
-	Name        string
-	State       int16
-	Description string
-	EditTime    time.Time
-	CreateTime  time.Time
-	Services    []*Service
-	storage     Storage `json:"-"`
-}
+type Status int
 
-func (r *Role) Save() error {
-	return r.storage.SaveRole(r)
-}
-
-func (r *Role) SetStorage(storage Storage) {
-	r.storage = storage
-}
-
-type Service struct {
-	Name        string
-	SupService  string
-	SubService  map[string]*Service
-	Description string
-	CreateTime  time.Time
-	EditTime    time.Time
-	Roles       []*Role
-	storage     Storage `json:"-"`
-}
-
-func (s *Service) AddRoles(roles ...*Role) (err error) {
-	return s.storage.SaveRelation(s, roles...)
-}
-
-func (s *Service) Save() error {
-	return s.storage.SaveService(s)
-}
-func (s *Service) NewSubService(name string) *Service {
-	now := time.Now()
-
-	service := &Service{
-		Name:        name,
-		SupService:  s.Name,
-		SubService:  nil,
-		Description: "",
-		CreateTime:  now,
-		EditTime:    now,
-		storage:     s.storage,
-	}
-	return service
-}
-
-func (s *Service) SetStorage(storage Storage) {
-	s.storage = storage
-}
+const (
+	StatusOff Status = -1
+	_         Status = iota
+	StatusOn
+)
 
 type Storage interface {
-	Sync() (serviceTree map[string]*Service, roles []*Role, err error)
-	SaveRole(role *Role) error
-	SaveService(service *Service) error
-	SaveRelation(service *Service, role ...*Role) error
+	Sync(memory *Memory) (err error)
+	RoleUpdate(role *Role) error
+	RoleCreate(role *Role) (err error)
+	RoleDelete(name string) (err error)
+	ServiceUpdate(service *Service) (err error)
+	ServiceCreate(service *Service) (err error)
+	ServiceDelete(name string) (err error)
+	UpdateRelation(role *Role, service []*Service) error
+}
+
+type Memory struct {
+	storage  Storage
+	Services map[string]*Service
+	Roles    map[string]*Role
+	sync.Mutex
+	SyncErr error
+}
+
+func NewMemory(storage Storage) Memory {
+	return Memory{
+		storage:  storage,
+		Services: map[string]*Service{},
+		Roles:    map[string]*Role{},
+	}
+}
+
+func (m *Memory) NewRole(name string, description string) (r *Role, err error) {
+	m.Lock()
+	defer m.Unlock()
+
+	r = &Role{
+		Name:        name,
+		Description: description,
+		CreateTime:  time.Now(),
+		EditTime:    time.Now(),
+		Status:      StatusOn,
+	}
+	r.SetMemory(m)
+	err = m.storage.RoleCreate(r)
+	if err != nil {
+		return
+	}
+	m.Roles[name] = r
+	return
+}
+
+func (m *Memory) RoleUpdateServices(roleName string, servicePaths ...string) (err error) {
+	m.Lock()
+	defer m.Unlock()
+	var (
+		ok       bool
+		role     *Role
+		service  *Service
+		services []*Service
+	)
+
+	if role, ok = m.Roles[roleName]; !ok {
+		err = fmt.Errorf("角色[%s]\n%w", roleName, errors.ErrRecordNotExist)
+		return
+	}
+	for _, servicePath := range servicePaths {
+		if service, ok = m.Services[servicePath]; !ok {
+			err = fmt.Errorf("服务[%s]\n%w", servicePath, errors.ErrRecordNotExist)
+			return
+		}
+
+		services = append(services, service)
+	}
+
+	err = m.storage.UpdateRelation(role, services)
+	if err != nil {
+		err = fmt.Errorf("持久保存失败\n%w", err)
+		return
+	}
+	role.Services = services
+	return
+}
+
+func (m *Memory) NewService(servicePath, description string) (service *Service, err error) {
+	m.Lock()
+	defer m.Unlock()
+
+	service = &Service{
+		Path:        servicePath,
+		Description: description,
+		CreateTime:  time.Now(),
+		EditTime:    time.Now(),
+		Status:      StatusOn,
+	}
+	service.SetMemory(m)
+	err = m.storage.ServiceCreate(service)
+	if err != nil {
+		return
+	}
+	m.Services[servicePath] = service
+	return
+}
+func (m *Memory) Sync() {
+	m.Lock()
+	defer m.Unlock()
+
+	m.SyncErr = m.storage.Sync(m)
+	if m.SyncErr != nil {
+		return
+	}
+	return
+}
+
+func (m *Memory) DeleteRole(name string) (err error) {
+	m.Lock()
+	defer m.Unlock()
+
+	err = m.storage.RoleDelete(name)
+	if err != nil {
+		return
+	}
+	delete(m.Roles, name)
+
+	return
+}
+func (m *Memory) DeleteService(name string) (err error) {
+	m.Lock()
+	defer m.Unlock()
+	err = m.storage.ServiceDelete(name)
+	if err != nil {
+		return
+	}
+	delete(m.Services, name)
+	return
 }

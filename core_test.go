@@ -5,91 +5,161 @@
 package auth
 
 import (
+	"github.com/ZR233/auth/model"
 	"github.com/ZR233/auth/storage/gorm"
+	"github.com/ZR233/auth/storage/gorm/test/mysql"
 	"testing"
 )
 
-func TestCore(t *testing.T) {
-
-	st := gorm.NewStorage(gorm.DbForTest())
-
-	core := NewCore(st)
-	normal := core.NewRole("普通用户")
-	err := normal.Save()
+func testNewCore() *Core {
+	st := gorm.NewStorage(mysql.TestDbMysql())
+	core, err := NewCore(st)
 	if err != nil {
-		t.Error(err)
-	}
-	admin := core.NewRole("管理员")
-	err = admin.Save()
-	if err != nil {
-		t.Error(err)
+		panic(err)
 	}
 
-	userS := core.NewService("User")
-	infoS := userS.NewSubService("Info")
-	editS := userS.NewSubService("Edit")
-	okButtonS := editS.NewSubService("OKButton")
+	return core
+}
 
-	err = userS.Save()
+func TestCoreDelete(t *testing.T) {
+
+	core := testNewCore()
+
+	testClear(core)
+
+	if len(core.Services) != 0 {
+		t.Errorf("serivce len %d", len(core.Services))
+		return
+	}
+	if len(core.Roles) != 0 {
+		t.Errorf("Roles len %d", len(core.Roles))
+		return
+	}
+}
+func testClear(core *Core) {
+
+	_ = core.DeleteRole("普通用户")
+	_ = core.DeleteRole("管理员")
+
+	_ = core.DeleteService("User")
+	_ = core.DeleteService("User/Info")
+	_ = core.DeleteService("User/Edit")
+	_ = core.DeleteService("User/Edit/OKButton")
+}
+
+func TestCoreCreate(t *testing.T) {
+	core := testNewCore()
+	testClear(core)
+
+	normal, err := core.NewRole("普通用户", "测试")
 	if err != nil {
 		t.Error(err)
+		return
 	}
-	err = infoS.Save()
+	admin, err := core.NewRole("管理员", "测试")
 	if err != nil {
 		t.Error(err)
+		return
 	}
-	err = editS.Save()
+
+	userS, err := core.NewService("User", "测试")
 	if err != nil {
 		t.Error(err)
+		return
 	}
-	err = okButtonS.Save()
+	infoS, err := userS.NewSubService("Info", "测试")
 	if err != nil {
 		t.Error(err)
+		return
 	}
-	err = userS.AddRoles(admin)
+	editS, err := userS.NewSubService("Edit", "测试")
 	if err != nil {
 		t.Error(err)
+		return
 	}
-	err = userS.AddRoles(normal)
+	okButtonS, err := editS.NewSubService("OKButton", "测试")
 	if err != nil {
 		t.Error(err)
+		return
 	}
-	err = editS.AddRoles(admin)
+
+	err = admin.SetServices(userS.Path, editS.Path, infoS.Path, okButtonS.Path)
 	if err != nil {
 		t.Error(err)
+		return
 	}
+	err = normal.SetServices(userS.Path, okButtonS.Path)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
 }
 
 func TestCore_Check(t *testing.T) {
-	st := gorm.NewStorage(gorm.DbForTest())
-
-	c := NewCore(st)
-	err := c.Sync()
-	if err != nil {
-		t.Error(err)
-	}
+	c := testNewCore()
 
 	type args struct {
 		ServiceUrl string
 		roleName   string
 	}
 	tests := []struct {
-		name  string
-		args  args
-		wantR bool
+		name    string
+		args    args
+		wantErr bool
 	}{
-		{"1", args{"Task", "管理员"}, true},
-		{"2", args{"User", "管理员"}, true},
-		{"3", args{"User/Edit", "管理员"}, true},
-		{"4", args{"User/Edit", "普通用户"}, false},
-		{"5", args{"User/Edit/OKButton", "管理员"}, true},
-		{"6", args{"User/Edit/OKButton", "普通用户"}, false},
+		{"1", args{"Task", "管理员"}, false},
+		{"2", args{"User", "管理员"}, false},
+		{"3", args{"User", "普通用户"}, false},
+		{"4", args{"User/Edit", "管理员"}, false},
+		{"5", args{"User/Edit", "普通用户"}, true},
+		{"6", args{"User/Edit/OKButton", "管理员"}, false},
+		{"7", args{"User/Edit/OKButton", "普通用户"}, true},
+		{"8", args{"User/Edit/OKButton/Test", "管理员"}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if gotR := c.Check(tt.args.ServiceUrl, tt.args.roleName); gotR != tt.wantR {
-				t.Errorf("Check() = %v, want %v", gotR, tt.wantR)
+			if gotR := c.RoleCanUseService(tt.args.roleName, tt.args.ServiceUrl); gotR != nil && !tt.wantErr {
+				t.Errorf("Check() = %v, want %v", gotR, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestCore_Set(t *testing.T) {
+	core := testNewCore()
+	defer func() {
+		core.DeleteRole("普通用户2")
+		core.DeleteService("User2")
+	}()
+
+	normal, err := core.NewRole("普通用户2", "测试")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	userS, err := core.NewService("User2", "测试")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	err = normal.SetServices(userS.Path)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	err = normal.SetStatus(model.StatusOff)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	err = core.RoleCanUseService(normal.Name, "User")
+	t.Log(err)
+	if err == nil {
+		t.Error(err)
+		return
 	}
 }

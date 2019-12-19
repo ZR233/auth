@@ -5,97 +5,99 @@
 package auth
 
 import (
+	"context"
+	"fmt"
+	"github.com/ZR233/auth/errors"
 	"github.com/ZR233/auth/model"
+	"path"
 	"strings"
 	"time"
 )
 
 type Core struct {
 	serviceTree map[string]*model.Service
-	roles       []*model.Role
-	storage     model.Storage
+	roles       map[string]*model.Role
+
+	model.Memory
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
-func NewCore(storage model.Storage) *Core {
-	c := &Core{
-		storage: storage,
+func NewCore(storage model.Storage) (c *Core, err error) {
+	c = &Core{
+		Memory: model.NewMemory(storage),
 	}
-	return c
-}
 
-func (c *Core) NewRole(name string) *model.Role {
-	r := &model.Role{
-		Name:       name,
-		State:      1,
-		CreateTime: time.Now(),
-		EditTime:   time.Now(),
+	c.ctx, c.cancel = context.WithCancel(context.Background())
+
+	c.Sync()
+	if c.SyncErr != nil {
+		return
 	}
-	r.SetStorage(c.storage)
 
-	return r
-
-}
-func (c *Core) NewService(name string) *model.Service {
-	s := &model.Service{
-		Name:        name,
-		SupService:  "",
-		SubService:  nil,
-		Description: "",
-		CreateTime:  time.Now(),
-		EditTime:    time.Now(),
-	}
-	s.SetStorage(c.storage)
-
-	return s
-}
-func (c *Core) Sync() error {
-	serviceTree, roles, err := c.storage.Sync()
-	if err != nil {
-		return err
-	}
-	c.serviceTree = serviceTree
-	c.roles = roles
-	return nil
-}
-func rolesHasName(roles []*model.Role, name string) bool {
-	r := false
-	for _, v := range roles {
-		if v.Name == name {
-			r = true
-			break
+	go func() {
+		for {
+			select {
+			case <-c.ctx.Done():
+				return
+			case <-time.After(time.Second):
+				c.Sync()
+			}
 		}
-	}
-	return r
+	}()
+
+	return
 }
 
-func (c *Core) Check(ServiceUrl string, roleName string) (r bool) {
-	r = false
-	serviceNames := strings.Split(ServiceUrl, "/")
-	if len(serviceNames) == 0 {
-		return true
-	}
-	serviceName := serviceNames[0]
-	service, ok := c.serviceTree[serviceName]
-	if ok {
-		r = rolesHasName(service.Roles, roleName)
-		if !r {
+func (c *Core) roleCannotUseServiceOneLayer(role *model.Role, serviceToBeCheck string) (r bool) {
+	r = true
+	for _, serviceRoleHas := range role.Services {
+		if serviceRoleHas.Path == serviceToBeCheck {
+			r = false
 			return
 		}
-	} else {
-		return true
 	}
-	serviceNames = serviceNames[1:]
-	for _, servceName := range serviceNames {
-		service, ok = service.SubService[servceName]
-		if ok {
-			r = rolesHasName(service.Roles, roleName)
-			if !r {
-				return
+	return
+}
+
+func (c *Core) roleCanUseAllServicesInServiceTrace(role *model.Role, serviceTrace []string) (err error) {
+	if role.Status == model.StatusOff {
+		err = fmt.Errorf("角色[%s]未启用\n%w", role.Name, errors.ErrPermissionDenied)
+		return
+	}
+
+	serviceStrToBeCheck := ""
+	for _, serviceOneLayer := range serviceTrace {
+		serviceStrToBeCheck = path.Join(serviceStrToBeCheck, serviceOneLayer)
+		if service, ok := c.Services[serviceStrToBeCheck]; ok {
+			if service.Status == model.StatusOn {
+				if c.roleCannotUseServiceOneLayer(role, serviceStrToBeCheck) {
+					err = fmt.Errorf("[%s]没有权限执行[%s]\n%w", role.Name, serviceStrToBeCheck, errors.ErrPermissionDenied)
+					return
+				}
 			}
-		} else {
-			return true
 		}
 	}
+
+	return
+}
+
+func (c *Core) RoleCanUseService(roleName, servicePath string) (err error) {
+	c.Lock()
+	defer c.Unlock()
+	if c.SyncErr != nil {
+		err = c.SyncErr
+		return
+	}
+	role, ok := c.Memory.Roles[roleName]
+	if !ok {
+		err = fmt.Errorf("角色[%s]\n%w", roleName, errors.ErrRecordNotExist)
+		return
+	}
+
+	serviceTrace := strings.Split(servicePath, "/")
+
+	err = c.roleCanUseAllServicesInServiceTrace(role, serviceTrace)
 
 	return
 }

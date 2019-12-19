@@ -5,12 +5,89 @@
 package gorm
 
 import (
+	"fmt"
+	"github.com/ZR233/auth/errors"
 	"github.com/ZR233/auth/model"
 	gorm2 "github.com/jinzhu/gorm"
+	"time"
+)
+
+var (
+	initTime = time.Date(2000, 1, 1, 0, 0, 0, 0, time.Local)
 )
 
 type Storage struct {
 	db *gorm2.DB
+}
+
+func (s *Storage) Sync(memory *model.Memory) (err error) {
+	var (
+		services  []*Service
+		roles     []*Role
+		relations []*ServiceRoleRelation
+	)
+
+	err = s.db.Find(&services).Error
+	if err != nil {
+		return
+	}
+	err = s.db.Find(&roles).Error
+	if err != nil {
+		return
+	}
+	err = s.db.Find(&relations).Error
+	if err != nil {
+		return
+	}
+
+	for _, role := range roles {
+		r := model.Role(*role)
+		memory.Roles[role.Name] = &r
+	}
+	for _, service := range services {
+		r := model.Service(*service)
+		memory.Services[service.Path] = &r
+	}
+
+	for _, relation := range relations {
+		if role, ok := memory.Roles[relation.RoleName]; ok {
+			if service, ok := memory.Services[relation.ServiceName]; ok {
+				role.Services = append(role.Services, service)
+			}
+		}
+	}
+
+	return
+}
+
+func (s *Storage) UpdateRelation(role *model.Role, services []*model.Service) (err error) {
+	tx := s.db.Begin()
+	defer func() {
+		if p := recover(); p != nil {
+			tx.Rollback()
+		} else {
+			tx.Commit()
+		}
+	}()
+
+	err = tx.Delete(ServiceRoleRelation{}, "role_name = ?", role.Name).Error
+	if err != nil {
+		panic(err)
+	}
+
+	for _, service := range services {
+		relation := ServiceRoleRelation{
+			ServiceName: service.Path,
+			RoleName:    role.Name,
+		}
+
+		err = tx.Create(&relation).Error
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	return
 }
 
 func NewStorage(gorm *gorm2.DB) *Storage {
@@ -31,177 +108,80 @@ func (s *Storage) migrate() {
 }
 
 func newRole(role *model.Role) (r *Role) {
-	r = &Role{
-		Name:        role.Name,
-		State:       role.State,
-		Description: role.Description,
-		EditTime:    &role.EditTime,
-		CreateTime:  &role.CreateTime,
-	}
-
-	return
+	r_ := Role(*role)
+	return &r_
 }
-func newService(service *model.Service) (s *Service) {
-	s = &Service{
-		Name:         service.Name,
-		SuperiorName: service.SupService,
-		Description:  service.Description,
-		CreateTime:   &service.CreateTime,
-		EditTime:     &service.EditTime,
-	}
-
-	return
+func newService(service *model.Service) (r *Service) {
+	r_ := Service(*service)
+	return &r_
 }
 
-func (s *Storage) SaveRole(role *model.Role) (err error) {
+func (s *Storage) RoleUpdate(role *model.Role) (err error) {
 	r := newRole(role)
-	return s.db.Save(r).Error
+	return s.db.Model(&Role{}).Omit("create_time").Where("name = ?", role.Name).Updates(r).Error
 }
-func (s *Storage) SaveService(service *model.Service) (err error) {
-	service_ := newService(service)
-	return s.db.Save(service_).Error
-}
+func (s *Storage) RoleCreate(role *model.Role) (err error) {
+	r := newRole(role)
 
-func (s *Storage) SaveRelation(service *model.Service, roles ...*model.Role) (err error) {
-	serviceName := service.Name
+	var roles []*Role
 	tx := s.db.Begin()
 	defer func() {
-		if err_ := recover(); err_ != nil {
+		if p := recover(); p != nil {
 			tx.Rollback()
 		} else {
 			tx.Commit()
 		}
 	}()
 
-	for _, role := range roles {
-		roleName := role.Name
-		r := &ServiceRoleRelation{
-			ServiceName: serviceName,
-			RoleName:    roleName,
-		}
-
-		err = s.db.Save(r).Error
-		if err != nil {
-			panic(err)
-		}
+	err = tx.Where("name = ?", role.Name).Find(&roles).Error
+	if err != nil {
+		panic(err)
+	}
+	if len(roles) > 0 {
+		err = fmt.Errorf("角色[%s]\n%w", role.Name, errors.ErrRecordExist)
+		panic(err)
+	}
+	err = tx.Create(r).Error
+	if err != nil {
+		panic(err)
 	}
 	return
 }
+func (s *Storage) RoleDelete(name string) (err error) {
+	return s.db.Where(&Role{Name: name}).Delete(&Role{Name: name}).Error
+}
 
-func (s *Storage) Sync() (serviceTree map[string]*model.Service, AllRoles []*model.Role, err error) {
+func (s *Storage) ServiceUpdate(service *model.Service) (err error) {
+	service_ := newService(service)
+	return s.db.Model(&Service{}).Omit("create_time").Where("path = ?", service.Path).Updates(service_).Error
+}
+func (s *Storage) ServiceCreate(service *model.Service) (err error) {
+	service_ := newService(service)
 	var services []*Service
-	err = s.db.Find(&services).Error
+	tx := s.db.Begin()
+	defer func() {
+		if p := recover(); p != nil {
+			tx.Rollback()
+		} else {
+			tx.Commit()
+		}
+	}()
+
+	err = tx.Where("path = ?", service_.Path).Find(&services).Error
 	if err != nil {
-		return
+		panic(err)
 	}
-	var serviceO []*model.Service
-	for _, service := range services {
-		var relations []*ServiceRoleRelation
-		err = s.db.Where(&ServiceRoleRelation{ServiceName: service.Name}).Find(&relations).Error
-		if err != nil {
-			return
-		}
-		var roles []*model.Role
-
-		for _, relation := range relations {
-			var role_ Role
-			err = s.db.Where(&Role{Name: relation.RoleName, State: 1}).Find(&role_).Error
-			if err != nil {
-				return
-			}
-			role := &model.Role{
-				Name:        role_.Name,
-				State:       role_.State,
-				Description: role_.Description,
-				EditTime:    *role_.EditTime,
-				CreateTime:  *role_.CreateTime,
-			}
-			role.SetStorage(s)
-
-			roles = append(roles, role)
-		}
-
-		service_ := &model.Service{
-			Name:        service.Name,
-			SupService:  service.SuperiorName,
-			SubService:  nil,
-			Description: service.Description,
-			CreateTime:  *service.CreateTime,
-			EditTime:    *service.EditTime,
-			Roles:       roles,
-		}
-		service_.SetStorage(s)
-		serviceO = append(serviceO, service_)
-
+	if len(services) > 0 {
+		err = fmt.Errorf("服务[%s]\n%w", service_.Path, errors.ErrRecordExist)
+		panic(err)
 	}
-
-	serviceTree = make(map[string]*model.Service)
-	for _, v := range serviceO {
-		serviceTreeInsert(serviceTree, v, serviceO)
-	}
-	var roles_ []*Role
-	err = s.db.Where(&Role{State: 1}).Find(&roles_).Error
+	err = tx.Create(service_).Error
 	if err != nil {
-		return
-	}
-	for _, role := range roles_ {
-		role_ := &model.Role{
-			Name:        role.Name,
-			State:       role.State,
-			Description: role.Description,
-			EditTime:    *role.EditTime,
-			CreateTime:  *role.CreateTime,
-			Services:    nil,
-		}
-		role_.SetStorage(s)
-		AllRoles = append(AllRoles, role_)
-	}
-
-	return
-}
-
-func findSupService(service *model.Service, services []*model.Service) (sub *model.Service) {
-	for _, v := range services {
-		if v.Name == service.SupService {
-			return v
-		}
+		panic(err)
 	}
 	return
 }
 
-func serviceGetTrace(service *model.Service, services []*model.Service) (trace []*model.Service) {
-	for {
-		trace = append([]*model.Service{service}, trace...)
-		service = findSupService(service, services)
-		if service == nil || service.Name == "" {
-			return
-		}
-	}
-}
-
-func serviceTreeInsert(serviceTree map[string]*model.Service, service *model.Service, services []*model.Service) {
-	trace := serviceGetTrace(service, services)
-	if len(trace) == 0 {
-		return
-	}
-
-	service_, ok := serviceTree[trace[0].Name]
-	if !ok {
-		serviceTree[trace[0].Name] = trace[0]
-		service_ = trace[0]
-	}
-	trace = trace[1:]
-
-	for _, v := range trace {
-		if service_.SubService == nil {
-			service_.SubService = make(map[string]*model.Service)
-		}
-
-		_, ok := service_.SubService[v.Name]
-		if !ok {
-			service_.SubService[v.Name] = v
-		}
-		service_ = service_.SubService[v.Name]
-	}
-
+func (s *Storage) ServiceDelete(servicePath string) (err error) {
+	return s.db.Where(&Service{Path: servicePath}).Delete(&Service{Path: servicePath}).Error
 }

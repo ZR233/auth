@@ -10,7 +10,7 @@ import (
 
 func TestNewStorage(t *testing.T) {
 
-	NewStorage(DbForTest())
+	//NewStorage(DbForTest())
 }
 
 func TestStorage_Sync(t *testing.T) {

@@ -2,15 +2,15 @@
 @Time : 2019-08-27 14:30
 @Author : zr
 */
-package gorm
+package mysql
 
 import (
 	"fmt"
 	gorm2 "github.com/jinzhu/gorm"
-	_ "github.com/jinzhu/gorm/dialects/mysql"
+	_ "github.com/jinzhu/gorm/dialects/postgres"
 )
 
-func DbForTest() *gorm2.DB {
+func TestDbPG() *gorm2.DB {
 
 	user := "sa"
 	password := "asdf*123"
